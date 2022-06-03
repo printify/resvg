@@ -1,3 +1,5 @@
+use usvg::ImageData;
+
 fn main() {
     let mut opt = usvg::Options::default();
 
@@ -9,7 +11,7 @@ fn main() {
     // Here we handle xlink:href attribute as string,
     // let's use already loaded Ferris image to match that string.
     let resolve_string = Box::new(move |href: &str, _: &usvg::OptionsRef| match href {
-        "ferris_image" => Some(usvg::ImageKind::PNG(ferris_image.clone())),
+        "ferris_image" => Some(ImageData { id: href.to_owned(), kind: usvg::ImageKind::PNG(ferris_image.clone()) }),
         _ => None,
     });
 
@@ -25,7 +27,7 @@ fn main() {
     let pixmap_size = rtree.svg_node().size.to_screen_size();
     let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
 
-    resvg::render(&rtree, usvg::FitTo::Original, tiny_skia::Transform::default(), pixmap.as_mut()).unwrap();
+    resvg::render(&rtree, usvg::FitTo::Original, tiny_skia::Transform::default(), pixmap.as_mut(), &None).unwrap();
 
     pixmap.save_png("custom_href_resolver.png").unwrap();
 }

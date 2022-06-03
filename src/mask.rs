@@ -53,7 +53,7 @@ pub fn mask(
             mask_canvas.apply_transform(usvg::Transform::from_bbox(bbox).to_native());
         }
 
-        crate::render::render_group(tree, node, &mut RenderState::Ok, &mut mask_canvas);
+        crate::render::render_group(tree, node, &mut RenderState::Ok, &mut mask_canvas, &None);
     }
 
     {

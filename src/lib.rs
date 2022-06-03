@@ -11,6 +11,9 @@
 #![allow(clippy::identity_op)]
 #![allow(clippy::upper_case_acronyms)]
 
+pub use image::ImageDecoder;
+pub use image::DecodedImage;
+pub use image::RawPixels;
 pub use usvg::ScreenSize;
 
 use usvg::NodeExt;
@@ -73,11 +76,12 @@ pub fn render(
     fit_to: usvg::FitTo,
     transform: tiny_skia::Transform,
     pixmap: tiny_skia::PixmapMut,
+    decoder: &Option<ImageDecoder>,
 ) -> Option<()> {
     let size = fit_to.fit_to(tree.svg_node().size.to_screen_size())?;
     let mut canvas = render::Canvas::from(pixmap);
     canvas.apply_transform(transform);
-    render::render_to_canvas(tree, size, &mut canvas);
+    render::render_to_canvas(tree, size, &mut canvas, decoder);
     Some(())
 }
 
@@ -94,6 +98,7 @@ pub fn render_node(
     fit_to: usvg::FitTo,
     transform: tiny_skia::Transform,
     pixmap: tiny_skia::PixmapMut,
+    decoder: &Option<ImageDecoder>,
 ) -> Option<()> {
     let node_bbox = if let Some(bbox) = node.calculate_bbox().and_then(|r| r.to_rect()) {
         bbox
@@ -110,6 +115,6 @@ pub fn render_node(
     let size = fit_to.fit_to(node_bbox.size().to_screen_size())?;
     let mut canvas = render::Canvas::from(pixmap);
     canvas.apply_transform(transform);
-    render::render_node_to_canvas(tree, node, vbox, size, &mut render::RenderState::Ok, &mut canvas);
+    render::render_node_to_canvas(tree, node, vbox, size, &mut render::RenderState::Ok, &mut canvas, decoder);
     Some(())
 }

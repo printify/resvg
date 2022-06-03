@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use std::rc::Rc;
+use usvg::ImageData;
 
 use rgb::FromSlice;
 use usvg::{FuzzyZero, NodeExt, TransformFromBBox};
@@ -904,7 +905,7 @@ fn apply_image(
                 aspect: fe.aspect,
             };
 
-            crate::image::draw_kind(kind, view_box, fe.rendering_mode, &mut canvas);
+            crate::image::draw_kind(&ImageData { kind: kind.clone(), id: String::new() }, view_box, fe.rendering_mode, &mut canvas, &None);
         }
         usvg::filter::ImageKind::Use(ref id) => {
             if let Some(ref node) = tree.defs_by_id(id).or_else(|| tree.node_by_id(id)) {
@@ -912,7 +913,7 @@ fn apply_image(
                 canvas.scale(sx as f32, sy as f32);
                 canvas.apply_transform(node.transform().to_native());
 
-                crate::render::render_node(tree, node, &mut RenderState::Ok, &mut canvas);
+                crate::render::render_node(tree, node, &mut RenderState::Ok, &mut canvas, &None);
             }
         }
     }

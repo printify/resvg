@@ -4,7 +4,7 @@
 
 use usvg::{FuzzyEq, IsDefault, NodeExt};
 
-use crate::ConvTransform;
+use crate::{ConvTransform, image::ImageDecoder};
 
 pub struct Canvas<'a> {
     pub pixmap: tiny_skia::PixmapMut<'a>,
@@ -64,8 +64,9 @@ pub(crate) fn render_to_canvas(
     tree: &usvg::Tree,
     img_size: usvg::ScreenSize,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) {
-    render_node_to_canvas(tree, &tree.root(), tree.svg_node().view_box, img_size, &mut RenderState::Ok, canvas);
+    render_node_to_canvas(tree, &tree.root(), tree.svg_node().view_box, img_size, &mut RenderState::Ok, canvas, decoder);
 }
 
 pub(crate) fn render_node_to_canvas(
@@ -75,6 +76,7 @@ pub(crate) fn render_node_to_canvas(
     img_size: usvg::ScreenSize,
     state: &mut RenderState,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) {
     apply_viewbox_transform(view_box, img_size, canvas);
 
@@ -83,7 +85,7 @@ pub(crate) fn render_node_to_canvas(
     let ts = node.abs_transform();
 
     canvas.apply_transform(ts.to_native());
-    render_node(tree, node, state, canvas);
+    render_node(tree, node, state, canvas, decoder);
     canvas.transform = curr_ts;
 }
 
@@ -102,19 +104,20 @@ pub(crate) fn render_node(
     node: &usvg::Node,
     state: &mut RenderState,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) -> Option<usvg::PathBbox> {
     match *node.borrow() {
         usvg::NodeKind::Svg(_) => {
-            render_group(tree, node, state, canvas)
+            render_group(tree, node, state, canvas, decoder)
         }
         usvg::NodeKind::Path(ref path) => {
             crate::path::draw(tree, path, tiny_skia::BlendMode::SourceOver, canvas)
         }
         usvg::NodeKind::Image(ref img) => {
-            Some(crate::image::draw(img, canvas))
+            Some(crate::image::draw(img, canvas, decoder))
         }
         usvg::NodeKind::Group(ref g) => {
-            render_group_impl(tree, node, g, state, canvas)
+            render_group_impl(tree, node, g, state, canvas, decoder)
         }
         _ => None,
     }
@@ -125,6 +128,7 @@ pub(crate) fn render_group(
     parent: &usvg::Node,
     state: &mut RenderState,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) -> Option<usvg::PathBbox> {
     let curr_ts = canvas.transform;
     let mut g_bbox = usvg::PathBbox::new_bbox();
@@ -144,7 +148,7 @@ pub(crate) fn render_group(
 
         canvas.apply_transform(node.transform().to_native());
 
-        let bbox = render_node(tree, &node, state, canvas);
+        let bbox = render_node(tree, &node, state, canvas, decoder);
         if let Some(bbox) = bbox {
             if let Some(bbox) = bbox.transform(&node.transform()) {
                 g_bbox = g_bbox.expand(bbox);
@@ -169,6 +173,7 @@ fn render_group_impl(
     g: &usvg::Group,
     state: &mut RenderState,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) -> Option<usvg::PathBbox> {
     let mut sub_pixmap = tiny_skia::Pixmap::new(canvas.pixmap.width(), canvas.pixmap.height())?;
     let curr_ts = canvas.transform;
@@ -176,7 +181,7 @@ fn render_group_impl(
     let bbox = {
         let mut sub_canvas = Canvas::from(sub_pixmap.as_mut());
         sub_canvas.transform = curr_ts;
-        render_group(tree, node, state, &mut sub_canvas)
+        render_group(tree, node, state, &mut sub_canvas, decoder)
     };
 
     // At this point, `sub_pixmap` has probably the same size as the viewbox.
@@ -329,7 +334,7 @@ fn prepare_filter_background(
 
     // Render from the `start_node` until the `parent`. The `parent` itself is excluded.
     let mut state = RenderState::RenderUntil(parent.clone());
-    crate::render::render_node_to_canvas(tree, &start_node, view_box, img_size, &mut state, &mut canvas);
+    crate::render::render_node_to_canvas(tree, &start_node, view_box, img_size, &mut state, &mut canvas, &None);
 
     Some(pixmap)
 }

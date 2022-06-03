@@ -453,7 +453,7 @@ fn conv_element(
             }
 
             xml.write_transform(AId::Transform, img.transform);
-            xml.write_image_data(&img.kind);
+            xml.write_image_data(&img.kind.kind);
 
             xml.end_element();
         }

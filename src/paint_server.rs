@@ -268,7 +268,7 @@ fn prepare_pattern_pixmap(
         canvas.scale(bbox.width() as f32, bbox.height() as f32);
     }
 
-    crate::render::render_group(tree, pattern_node, &mut RenderState::Ok, &mut canvas);
+    crate::render::render_group(tree, pattern_node, &mut RenderState::Ok, &mut canvas, &None);
 
     let mut ts = usvg::Transform::default();
     ts.append(&pattern.transform);

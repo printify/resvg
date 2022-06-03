@@ -533,7 +533,7 @@ fn render_svg(args: Args, tree: &usvg::Tree, out_png: &path::Path) -> Result<(),
             }
         }
 
-        resvg::render_node(tree, &node, args.fit_to, tiny_skia::Transform::default(), pixmap.as_mut());
+        resvg::render_node(tree, &node, args.fit_to, tiny_skia::Transform::default(), pixmap.as_mut(), &None);
 
         if args.export_area_page {
             // TODO: add offset support to render_node() so we would not need an additional pixmap
@@ -573,7 +573,7 @@ fn render_svg(args: Args, tree: &usvg::Tree, out_png: &path::Path) -> Result<(),
             }
         }
 
-        resvg::render(tree, args.fit_to, tiny_skia::Transform::default(), pixmap.as_mut());
+        resvg::render(tree, args.fit_to, tiny_skia::Transform::default(), pixmap.as_mut(), &None);
 
         if args.export_area_drawing {
             let (_, _, pixmap) = resvg::trim_transparency(pixmap)

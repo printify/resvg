@@ -30,6 +30,12 @@ pub enum ImageKind {
     SVG(crate::Tree),
 }
 
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    pub kind: ImageKind,
+    pub id: String
+}
+
 impl std::fmt::Debug for ImageKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -42,9 +48,9 @@ impl std::fmt::Debug for ImageKind {
 }
 
 /// A shorthand for [ImageHrefResolver]'s data function.
-pub type ImageHrefDataResolverFn = Box<dyn Fn(&str, Arc<Vec<u8>>, &OptionsRef) -> Option<ImageKind> + Send + Sync>;
+pub type ImageHrefDataResolverFn = Box<dyn Fn(&str, Arc<Vec<u8>>, &OptionsRef) -> Option<ImageData> + Send + Sync>;
 /// A shorthand for [ImageHrefResolver]'s string function.
-pub type ImageHrefStringResolverFn = Box<dyn Fn(&str, &OptionsRef) -> Option<ImageKind> + Send + Sync>;
+pub type ImageHrefStringResolverFn = Box<dyn Fn(&str, &OptionsRef) -> Option<ImageData> + Send + Sync>;
 
 /// An `xlink:href` resolver for `<image>` elements.
 ///
@@ -82,19 +88,24 @@ impl ImageHrefResolver {
     /// Note that it will simply match the `mime` or data's magic.
     /// The actual images would not be decoded. It's up to the renderer.
     pub fn default_data_resolver() -> ImageHrefDataResolverFn {
+
         Box::new(
-            move |mime: &str, data: Arc<Vec<u8>>, opts: &OptionsRef| match mime {
-                "image/jpg" | "image/jpeg" => Some(ImageKind::JPEG(data)),
-                "image/png" => Some(ImageKind::PNG(data)),
-                "image/gif" => Some(ImageKind::GIF(data)),
-                "image/svg+xml" => load_sub_svg(&data, opts),
-                "text/plain" => match get_image_data_format(&data) {
-                    Some(ImageFormat::JPEG) => Some(ImageKind::JPEG(data)),
-                    Some(ImageFormat::PNG) => Some(ImageKind::PNG(data)),
-                    Some(ImageFormat::GIF) => Some(ImageKind::GIF(data)),
-                    _ => load_sub_svg(&data, opts),
-                },
-                _ => None,
+            move |mime: &str, data: Arc<Vec<u8>>, opts: &OptionsRef| {
+                let id = String::new();
+                    
+                match mime {
+                    "image/jpg" | "image/jpeg" => Some(ImageData { kind: ImageKind::JPEG(data), id }),
+                    "image/png" => Some(ImageData { kind: ImageKind::PNG(data), id }),
+                    "image/gif" => Some(ImageData { kind: ImageKind::GIF(data), id }),
+                    "image/svg+xml" => load_sub_svg(&data, opts).map(|kind| ImageData { id, kind }),
+                    "text/plain" => match get_image_data_format(&data) {
+                        Some(ImageFormat::JPEG) => Some(ImageData { kind: ImageKind::JPEG(data), id }),
+                        Some(ImageFormat::PNG) => Some(ImageData { kind: ImageKind::PNG(data), id }),
+                        Some(ImageFormat::GIF) => Some(ImageData { kind: ImageKind::GIF(data), id }),
+                        _ => load_sub_svg(&data, opts).map(|kind| ImageData { id, kind }),
+                    },
+                    _ => None,
+                }
             }
         )
     }
@@ -109,6 +120,7 @@ impl ImageHrefResolver {
     pub fn default_string_resolver() -> ImageHrefStringResolverFn {
         Box::new(move |href: &str, opts: &OptionsRef| {
             let path = opts.get_abs_path(std::path::Path::new(href));
+            let id = href.to_owned();
 
             if path.exists() {
                 let data = match std::fs::read(&path) {
@@ -120,10 +132,10 @@ impl ImageHrefResolver {
                 };
 
                 match get_image_file_format(&path, &data) {
-                    Some(ImageFormat::JPEG) => Some(ImageKind::JPEG(Arc::new(data))),
-                    Some(ImageFormat::PNG) => Some(ImageKind::PNG(Arc::new(data))),
-                    Some(ImageFormat::GIF) => Some(ImageKind::GIF(Arc::new(data))),
-                    Some(ImageFormat::SVG) => load_sub_svg(&data, opts),
+                    Some(ImageFormat::JPEG) => Some(ImageData { id, kind: ImageKind::JPEG(Arc::new(data)) }),
+                    Some(ImageFormat::PNG) => Some(ImageData { id, kind: ImageKind::PNG(Arc::new(data)) }),
+                    Some(ImageFormat::GIF) => Some(ImageData { id, kind: ImageKind::GIF(Arc::new(data)) }),
+                    Some(ImageFormat::SVG) => load_sub_svg(&data, opts).map(|kind| ImageData { id, kind }),
                     _ => {
                         log::warn!("'{}' is not a PNG, JPEG, GIF or SVG(Z) image.", href);
                         None
@@ -173,7 +185,7 @@ pub struct Image {
     pub rendering_mode: ImageRendering,
 
     /// Image data.
-    pub kind: ImageKind,
+    pub kind: ImageData,
 }
 
 pub(crate) fn convert(
@@ -216,7 +228,7 @@ pub(crate) fn convert(
     Some(())
 }
 
-pub(crate) fn get_href_data(href: &str, opt: &OptionsRef) -> Option<ImageKind> {
+pub(crate) fn get_href_data(href: &str, opt: &OptionsRef) -> Option<ImageData> {
     if let Ok(url) = data_url::DataUrl::process(href) {
         let (data, _) = url.decode_to_vec().ok()?;
 

@@ -72,6 +72,6 @@ pub(crate) fn convert(fe: svgtree::Node, state: &converter::State) -> Kind {
     Kind::Image(Image {
         aspect,
         rendering_mode,
-        data: ImageKind::Image(img_data),
+        data: ImageKind::Image(img_data.kind),
     })
 }

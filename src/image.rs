@@ -2,38 +2,41 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use std::sync::Arc;
+
 use crate::{ConvTransform, render::Canvas};
 
-pub fn draw(image: &usvg::Image, canvas: &mut Canvas) -> usvg::PathBbox {
+pub fn draw(image: &usvg::Image, canvas: &mut Canvas, decoder: &Option<ImageDecoder>) -> usvg::PathBbox {
     if image.visibility != usvg::Visibility::Visible {
         return image.view_box.rect.to_path_bbox();
     }
 
-    draw_kind(&image.kind, image.view_box, image.rendering_mode, canvas);
+    draw_kind(&image.kind, image.view_box, image.rendering_mode, canvas, decoder);
     image.view_box.rect.to_path_bbox()
 }
 
 pub fn draw_kind(
-    kind: &usvg::ImageKind,
+    image: &usvg::ImageData,
     view_box: usvg::ViewBox,
     rendering_mode: usvg::ImageRendering,
     canvas: &mut Canvas,
+    decoder: &Option<ImageDecoder>,
 ) {
-    match kind {
+    match image.kind {
         usvg::ImageKind::JPEG(ref data) => {
-            match read_jpeg(data) {
+            match if let Some(decoder) = decoder { decoder(&image.id, Arc::clone(data)) } else { read_jpeg(data) } {
                 Some(image) => { draw_raster(&image, view_box, rendering_mode, canvas); }
                 None => log::warn!("Failed to decode a JPEG image."),
             }
         }
         usvg::ImageKind::PNG(ref data) => {
-            match read_png(data) {
+            match if let Some(decoder) = decoder { decoder(&image.id, Arc::clone(data)) } else { read_png(data) } {
                 Some(image) => { draw_raster(&image, view_box, rendering_mode, canvas); }
                 None => log::warn!("Failed to decode a PNG image."),
             }
         }
         usvg::ImageKind::GIF(ref data) => {
-            match read_gif(data) {
+            match if let Some(decoder) = decoder { decoder(&image.id, Arc::clone(data)) } else { read_gif(data) } {
                 Some(image) => { draw_raster(&image, view_box, rendering_mode, canvas); }
                 None => log::warn!("Failed to decode a GIF image."),
             }
@@ -45,7 +48,7 @@ pub fn draw_kind(
 }
 
 fn draw_raster(
-    img: &Image,
+    img: &DecodedImage,
     view_box: usvg::ViewBox,
     rendering_mode: usvg::ImageRendering,
     canvas: &mut Canvas,
@@ -100,12 +103,12 @@ fn draw_raster(
     Some(())
 }
 
-fn image_to_pixmap(image: &Image, pixmap: &mut [u8]) {
+fn image_to_pixmap(image: &DecodedImage, pixmap: &mut [u8]) {
     use rgb::FromSlice;
 
     let mut i = 0;
     match &image.data {
-        ImageData::RGB(data) => {
+        RawPixels::RGB(data) => {
             for p in data.as_rgb() {
                 pixmap[i + 0] = p.r;
                 pixmap[i + 1] = p.g;
@@ -115,7 +118,7 @@ fn image_to_pixmap(image: &Image, pixmap: &mut [u8]) {
                 i += tiny_skia::BYTES_PER_PIXEL;
             }
         }
-        ImageData::RGBA(data) => {
+        RawPixels::RGBA(data) => {
             for p in data.as_rgba() {
                 pixmap[i + 0] = p.r;
                 pixmap[i + 1] = p.g;
@@ -152,7 +155,7 @@ fn draw_svg(
     let mut sub_canvas = Canvas::from(sub_pixmap.as_mut());
     sub_canvas.transform = canvas.transform;
     sub_canvas.apply_transform(ts.to_native());
-    crate::render::render_to_canvas(tree, img_size, &mut sub_canvas);
+    crate::render::render_to_canvas(tree, img_size, &mut sub_canvas, &None);
 
     if let Some(clip) = clip {
         let rr = tiny_skia::Rect::from_xywh(
@@ -176,17 +179,20 @@ fn draw_svg(
     Some(())
 }
 
-struct Image {
-    data: ImageData,
-    size: usvg::ScreenSize,
+pub struct DecodedImage {
+    pub data: RawPixels,
+    pub size: usvg::ScreenSize,
 }
 
-enum ImageData {
-    RGB(Vec<u8>),
-    RGBA(Vec<u8>),
+pub enum RawPixels {
+    RGB(Arc<Vec<u8>>),
+    RGBA(Arc<Vec<u8>>),
 }
 
-fn read_png(data: &[u8]) -> Option<Image> {
+/// Custom decoder.
+pub type ImageDecoder = Box<dyn Fn(&str, Arc<Vec<u8>>) -> Option<DecodedImage> + Send + Sync>;
+
+fn read_png(data: &[u8]) -> Option<DecodedImage> {
     let mut decoder = png::Decoder::new(data);
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder.read_info().ok()?;
@@ -196,8 +202,8 @@ fn read_png(data: &[u8]) -> Option<Image> {
     let size = usvg::ScreenSize::new(info.width, info.height)?;
 
     let data = match info.color_type {
-        png::ColorType::Rgb => ImageData::RGB(img_data),
-        png::ColorType::Rgba => ImageData::RGBA(img_data),
+        png::ColorType::Rgb => RawPixels::RGB(Arc::new(img_data)),
+        png::ColorType::Rgba => RawPixels::RGBA(Arc::new(img_data)),
         png::ColorType::Grayscale => {
             let mut rgb_data = Vec::with_capacity(img_data.len() * 3);
             for gray in img_data {
@@ -206,7 +212,7 @@ fn read_png(data: &[u8]) -> Option<Image> {
                 rgb_data.push(gray);
             }
 
-            ImageData::RGB(rgb_data)
+            RawPixels::RGB(Arc::new(rgb_data))
         }
         png::ColorType::GrayscaleAlpha => {
             let mut rgba_data = Vec::with_capacity(img_data.len() * 2);
@@ -219,7 +225,7 @@ fn read_png(data: &[u8]) -> Option<Image> {
                 rgba_data.push(alpha);
             }
 
-            ImageData::RGBA(rgba_data)
+            RawPixels::RGBA(Arc::new(rgba_data))
         }
         png::ColorType::Indexed => {
             log::warn!("Indexed PNG is not supported.");
@@ -227,13 +233,13 @@ fn read_png(data: &[u8]) -> Option<Image> {
         }
     };
 
-    Some(Image {
+    Some(DecodedImage {
         data,
         size,
     })
 }
 
-fn read_jpeg(data: &[u8]) -> Option<Image> {
+fn read_jpeg(data: &[u8]) -> Option<DecodedImage> {
     let mut decoder = jpeg_decoder::Decoder::new(data);
     let img_data = decoder.decode().ok()?;
     let info = decoder.info()?;
@@ -241,7 +247,7 @@ fn read_jpeg(data: &[u8]) -> Option<Image> {
     let size = usvg::ScreenSize::new(info.width as u32, info.height as u32)?;
 
     let data = match info.pixel_format {
-        jpeg_decoder::PixelFormat::RGB24 => ImageData::RGB(img_data),
+        jpeg_decoder::PixelFormat::RGB24 => RawPixels::RGB(Arc::new(img_data)),
         jpeg_decoder::PixelFormat::L8 => {
             let mut rgb_data = Vec::with_capacity(img_data.len() * 3);
             for gray in img_data {
@@ -250,18 +256,18 @@ fn read_jpeg(data: &[u8]) -> Option<Image> {
                 rgb_data.push(gray);
             }
 
-            ImageData::RGB(rgb_data)
+            RawPixels::RGB(Arc::new(rgb_data))
         }
         _ => return None,
     };
 
-    Some(Image {
+    Some(DecodedImage {
         data,
         size,
     })
 }
 
-fn read_gif(data: &[u8]) -> Option<Image> {
+fn read_gif(data: &[u8]) -> Option<DecodedImage> {
     let mut decoder = gif::DecodeOptions::new();
     decoder.set_color_output(gif::ColorOutput::RGBA);
     let mut decoder = decoder.read_info(data).ok()?;
@@ -269,8 +275,8 @@ fn read_gif(data: &[u8]) -> Option<Image> {
 
     let size = usvg::ScreenSize::new(u32::from(first_frame.width), u32::from(first_frame.height))?;
 
-    Some(Image {
-        data: ImageData::RGBA(first_frame.buffer.to_vec()),
+    Some(DecodedImage {
+        data: RawPixels::RGBA(Arc::new(first_frame.buffer.to_vec())),
         size,
     })
 }
